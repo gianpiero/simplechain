@@ -44,9 +44,10 @@ var isValidNewBlock = function(params) {
 
 var genesisBlock = new Block({index: 0, hash: "816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7", previousHash: null, timestamp: 1465154705, data: 'my genesis block!!'})
 
-var Blockchain = function(genesisBlock) {
+var Blockchain = function(_genesisBlock) {
     this.chain = [];
     this.chain.push(genesisBlock);
+    this.genesisBlock = _genesisBlock?_genesisBlock:genesisBlock;
 }
 
 Blockchain.prototype.print = function() {
@@ -87,14 +88,5 @@ Blockchain.prototype.generateNextBlock= function(blockData) {
     return newBlock;
 }
 
-
-var test = function() {
-    var blockchain = new Blockchain(genesisBlock);
-    console.log("Before adding new block:\n");
-    blockchain.print();
-    var newBlock = blockchain.generateNextBlock("I am a new block");
-    console.log("After adding new block:\n");
-    blockchain.print();
-}
-
-test();
+module.exports.Block = Block;
+module.exports.Blockchain = Blockchain;
