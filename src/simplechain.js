@@ -9,10 +9,6 @@ var Block = function(params) {
     this.hash = params.hash;
 }
 
-Block.prototype.toString = function() {
-    return "index: " + this.index + "\npreviousHash: " + this.previousHash + "\ntimestamp: " + this.timestamp + "\ndata: " + this.data + "\nhash: " + this.hash;
-}
-
 var isValidBlockStructure = function(block) {
     return typeof block.index === 'number'
         && typeof block.hash === 'string'
@@ -51,10 +47,7 @@ var Blockchain = function(_genesisBlock) {
 }
 
 Blockchain.prototype.print = function() {
-    for(var i=0; i < this.chain.length; i++) {
-        console.log(this.chain[i].toString());
-        console.log("-----");
-    }
+    console.log(JSON.stringify(this.chain));
 }
 
 Blockchain.prototype.getLatestBlock = function() {
@@ -66,8 +59,6 @@ Blockchain.prototype.addBlock = function(block) {
         this.chain.push(block);
     }
 }
-
-
 
 var calculateHash = function(params) {
     return SHA256(params.index + params.previousHash + params.timestamp + params.data).toString();
