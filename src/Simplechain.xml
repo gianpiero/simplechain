@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds>
+    <types>
+      <enum name="MessageType">
+        <enumerator name="QUERY_LATEST" value="0"/>
+        <enumerator name="QUERY_ALL" value="1"/>
+        <enumerator name="RESPONSE_BLOCKCHAIN" value="2"/>
+      </enum>
+      <struct name="Message">
+        <member name="type" type="nonBasic" nonBasicTypeName="MessageType"/>
+        <member name="data" type="string"/>
+      </struct>
+    </types>
+
+    <domain_library name="MyDomainLibrary">
+      <domain name="MyDomain" domain_id="0">
+        <register_type name="MessageRegistered" type_ref="Message"/>
+        <topic name="SimplechainTopic" register_type_ref="MessageRegistered"/>
+      </domain>
+    </domain_library>
+
+    <domain_participant_library name="MyParticipantLibrary">
+      <domain_participant name="Simplechain" domain_ref="MyDomainLibrary::MyDomain">
+        <publisher name="MyPublisher">
+          <data_writer name="SimplechainWriter" topic_ref="SimplechainTopic"/>
+        </publisher>
+        <subscriber name="MySubscriber">
+          <data_reader name="SimplechainReader" topic_ref="SimplechainTopic"/>
+        </subscriber>
+      </domain_participant>
+    </domain_participant_library>
+
+</dds>
