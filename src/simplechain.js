@@ -1,129 +1,190 @@
+/*
+ * (c) 2005-2018  Copyright, Real-Time Innovations, Inc. All rights reserved.
+ * Subject to Eclipse Public License v1.0; see LICENSE.md for details.
+ */
+
 "use strict";
+
+// ***************************************************************************
+// Imported modules
+// ***************************************************************************
 var SHA256 = require("crypto-js/sha256");
 
+// ***************************************************************************
+// Block Class Definition
+// ***************************************************************************
+/* Builds a new Block. 
+ * Parameters is an optional parameter containing optional properties mirroring
+ * the inner properties of the Block object:
+ * If some of the properties of the 'params' object are not specified, the following
+ * default values will be used:
+ *  index: 0
+ *  previousHash: null
+ *  timestamp: current time
+ *  data: null
+ *  hash: calculate the hash over the all the other values
+ */
 var Block = function(params) {
-    this.index = params.index;
-    this.previousHash = params.previousHash;
-    this.timestamp = params.timestamp;
-    this.data = params.data;
-    this.hash = params.hash;
+    params = params || {};
+
+    // index is an integer >= 0
+    this.index = params.index || 0;
+
+    // previousHash is a string of exactly 64 characters (or null for the genesis block)
+    this.previousHash = params.previousHash || null;
+
+    // timestamp is an integer in UTC
+    this.timestamp = params.timestamp || Number.parseInt(new Date().getTime()/1000);
+
+    // data is anys tring
+    this.data = params.data || null;
+
+    // hash is a string of exactly 64 characters
+    this.hash = params.hash || this.calculateHash();
 }
 
-var isValidBlockStructure = function(block) {
-    return typeof block.index === 'number'
-        && typeof block.hash === 'string'
-        && typeof block.previousHash === 'string'
-        && typeof block.timestamp === 'number'
-        && typeof block.data === 'string';
-};
-
-
-
-var isValidNewBlock = function(params) {
-    var newBlock = params.newBlock;
-    var previousBlock = params.previousBlock;
-    if (!isValidBlockStructure(newBlock)) {
-        console.log('invalid structure');
-        return false;
-    }
-    if (previousBlock.index + 1 !== newBlock.index) {
-        console.log('invalid index');
-        return false;
-    } else if (previousBlock.hash !== newBlock.previousHash) {
-        console.log('invalid previoushash');
-        return false;
-    } else if (calculateHashForBlock(newBlock) !== newBlock.hash) {
-        console.log(typeof (newBlock.hash) + ' ' + typeof calculateHashForBlock(newBlock));
-        console.log('invalid hash: ' + calculateHashForBlock(newBlock) + ' ' + newBlock.hash);
-        return false;
-    }
-    return true;
-};
-
-var genesisBlock = new Block({index: 0, hash: "816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7", previousHash: null, timestamp: 1465154705, data: 'my genesis block!!'})
-
-
-var isValidChain = function (blockchainToValidate) {
-    var isValidGenesis = function (block) {
-        return JSON.stringify(block) === JSON.stringify(genesisBlock);
-    };
-    if (!isValidGenesis(blockchainToValidate[0])) {
-        return false;
-    }
-    for (var i = 1; i < blockchainToValidate.length; i++) {
-        var params = {newBlock: blockchainToValidate[i], previousBlock: blockchainToValidate[i - 1]};
-        if (!isValidNewBlock(params)) {
-            return false;
-        }
-    }
-    return true;
-};
-
-var Blockchain = function( _genesisBlock) {
-    this.chain = [];
-    this.chain.push(genesisBlock);
-    this.genesisBlock = _genesisBlock?_genesisBlock:genesisBlock;
-    this.p2p = null;
+/* Block.calculateHash - Calculates the hash of this block
+ */
+Block.prototype.calculateHash = function() {
+    return SHA256(this.index + this.previousHash + this.timestamp + this.data).toString();
 }
 
-Blockchain.prototype.setP2P = function(p2p) {
-    this.p2p = p2p;
+/*
+ * The Genesis block is always the first element of the chain.
+ * The values are not relevant as it is only a placeholder for the logic
+ * to get the 'hash' value.
+ */
+const GENESIS_BLOCK = new Block();
+
+/*
+ * Block.isEqual - Compares this block to another block.
+ * Returns boolean true if the two blocks are the same. false otherwise
+ */
+Block.prototype.isEqual = function(block) {
+    return (this.index === block.index) &&
+           (this.hash  === block.hash) &&
+           (this.previousHash === block.previousHash) &&
+           (this.timestamp === block.timestamp) &&
+           (this.data === block.data);
 }
 
-Blockchain.prototype.print = function() {
-    console.log(JSON.stringify(this.chain));
+/* block.isValidBlockStructure - Ensures the block has valid by enforcing
+ * the type and range of its properties.
+ * Returns the boolean true if the block has a valid structure.
+ *
+ * NOTE: This test will fail on the Genesis block. The algorithm here invokes
+ *       this method only to validate new blocks.
+ */
+Block.prototype.isValidBlockStructure = function() {
+    return (typeof this.index == 'number' && Number.isInteger(this.index) && this.index >= 0) &&
+           (typeof this.hash == 'string' && this.hash.length == 64) &&
+           (typeof this.previousHash == 'string' && this.previousHash.length == 64) &&
+           (typeof this.timestamp == 'number' && Number.isInteger(this.timestamp) && this.timestamp > 0) &&
+           (typeof this.data == 'string');
 }
 
-Blockchain.prototype.replaceChain = function (newBlocks) {
-    if (isValidChain(newBlocks) && newBlocks.length > this.chain.length) {
-        console.log('Received blockchain is valid. Replacing current blockchain with received blockchain');
-        this.chain = newBlocks;
-        if (this.p2p) {
-            this.p2p.broadcastLatest();
-        } else {
-            throw new Error("Invalid p2p: use setP2P to set one");
-        }
+/* Block.isValidNewBlock - Validates the given new block and ensure it is
+ * a valid block in the context of the current block.
+ * Throws an exception if validation failed. Error message contains the
+ * description of the reason why the block is not accepted
+ * This method does not return any value
+ */
+Block.prototype.validateNextBlock = function(newBlock) {
+    if (!(newBlock instanceof Block)) {
+        throw new Error("New block is not a valid Block object");
     }
-    else {
-        console.log('Received blockchain invalid');
+    if (!newBlock.isValidBlockStructure()) {
+        throw new Error("New block have an invalid data structure: " + JSON.stringify(newBlock));
     }
-};
+    if (this.index + 1 !== newBlock.index) {
+        throw new Error("New block have an invalid index. Expected=" + (this.index+1) + ", got=" + newBlock.index);
+    } 
+    if (this.hash !== newBlock.previousHash) {
+        throw new Error("New block have an invalid previousHash");
+    } 
+    var newBlockHash = newBlock.calculateHash();
+    if (newBlockHash != newBlock.hash) {
+        throw new Error("New block have an invalid hash: Expected='%s', got='%s'", newBlockHash, newBlock.hash);
+    }
+}
 
 
+// ***************************************************************************
+// Blockchain Class Definition
+// ***************************************************************************
+var Blockchain = function() {
+    this.chain = [GENESIS_BLOCK];
+}
+
+/* Static: validate the given chain is valid
+ * It ensure the first element of the chain is our genesis object, and that all 
+ * the following ones are correctly hash-linked.
+ *
+ * Throws an exception with the description of the error
+ */
+var validateChain = function(blockchainToValidate) {
+    if (!GENESIS_BLOCK.isEqual(blockchainToValidate[0])) {
+        throw new Error("First block is not genesis");
+    }
+
+    for (let i = 1; i < blockchainToValidate.length; i++) {
+        blockchainToValidate[i-1].validateNextBlock(blockchainToValidate[i]);
+    }
+}
+
+/* Blockchain.toString - Returns a string representation of this chain
+ */
+Blockchain.prototype.toString = function() {
+    return JSON.stringify(this.chain);
+}
+
+/* Blockchain.toContentString - Returns an array of the data stored in the chain
+ */
+Blockchain.prototype.toContentString = function() {
+    var data = [];
+
+    // for Gianpiero: Ha ha!
+    this.chain.slice(1).forEach( (elem) => { data.push(elem.data); });
+
+    return JSON.stringify(data);
+}
+
+/* Blockchain.replaceChain - Validate the new chain and replace the current
+ * chain with the new one.
+ *
+ * Throws an exception if chain cannot be replaced
+ */
+Blockchain.prototype.replaceChain = function (newChain) {
+    newChain.validateChain();  // Will throw exception if received blockchain is not valid
+
+    // Accept only if the new length is greater than our chain's length
+    if (newChain.length <= this.chain.length) {
+        throw new Error("Not blockchain not accepted as its length (%d) is <= of our chain (%d)", newChain.length, this.chain.length);
+    }
+    this.chain = newChain;
+}
+
+/* Blockchain.getLatestBlock - Returns the last block of the chain
+ */
 Blockchain.prototype.getLatestBlock = function() {
     return this.chain[this.chain.length -1]
 }
 
+/* Blockchain.addBlock - Adds a block to this chain
+ * Throws an exception if the new block cannot be added.
+ */
 Blockchain.prototype.addBlock = function(block) {
-    if (isValidNewBlock({newBlock: block, previousBlock: this.getLatestBlock()})) {
-        this.chain.push(block);
-        return true;
-    }
-    return false;
+    this.getLatestBlock().validateNextBlock(block); // Throws if invalid
+    this.chain.push(block);
 }
 
-
-
-var calculateHash = function(params) {
-    return SHA256(params.index + params.previousHash + params.timestamp + params.data).toString();
-}
-
-var calculateHashForBlock = function(block) {
-    return calculateHash({index: block.index, previousHash: block.previousHash, timestamp: block.timestamp, data: block.data})
-}
-
-Blockchain.prototype.generateNextBlock= function(blockData) {
-    var previousBlock = this.getLatestBlock();
-    var nextIndex = previousBlock.index + 1;
-    var nextTimestamp = new Date().getTime() / 1000;
-    var nextHash = calculateHash({index: nextIndex, previousHash: previousBlock.hash, timestamp: nextTimestamp, data:blockData});
-    var newBlock = new Block({index: nextIndex, hash: nextHash, previousHash: previousBlock.hash, timestamp: nextTimestamp, data: blockData});
+/* Blockchain.generateNextBlock - Generates a new block, appends it to the current
+ * chain and broadcast it through the P2P
+ */
+Blockchain.prototype.generateNextBlock= function(data) {
+    var lastBlock = this.getLatestBlock();
+    var newBlock = new Block({index: (lastBlock.index + 1), previousHash: lastBlock.hash, data: data});
     this.addBlock(newBlock);
-    if (this.p2p) {
-        this.p2p.broadcastLatest();
-    } else {
-        throw new Error("Invalid p2p: use setP2P to set one");
-    }
     return newBlock;
 }
 
@@ -133,4 +194,3 @@ Blockchain.prototype.getBlockchain = function() {
 
 module.exports.Block = Block;
 module.exports.Blockchain = Blockchain;
-module.exports.isValidBlockStructure = isValidBlockStructure;

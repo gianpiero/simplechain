@@ -4,6 +4,8 @@
  * Subject to Eclipse Public License v1.0; see LICENSE.md for details.
  */
 
+"use strict";
+
 // ***************************************************************************
 // External Modules
 // ***************************************************************************
@@ -20,6 +22,10 @@ var Blockchain = mod_simplechain.Blockchain;
 var P2P = mod_p2p.P2P;
 
 const DEFAULT_HTTP_PORT = 3001;
+const DEFAULT_XML_FILE          = "SimpleChain.xml";
+const DEFAULT_PARTICIPANT_NAME  = "MyParticipantLibrary::Simplechain";
+const DEFAULT_DATA_READER_NAME  = "MySubscriber::SimplechainReader";
+const DEFAULT_DATA_WRITER_NAME  = "MyPublisher::SimplechainWriter";
 
 
 
@@ -33,6 +39,10 @@ function usage() {
     console.log("  -h, --help          Show this page");
     console.log("  -v, --verbose       Increase log verbosity");
     console.log("  -p, --port <port>   Listen port for HTTP Server [%d]", DEFAULT_HTTP_PORT);
+    console.log("  --xml <file>        XML ConnextDDS AppCreation file to use [%s]", DEFAULT_XML_FILE);
+    console.log("  --part <name>       ConnextDDS Participant to use [%s]", DEFAULT_PARTICIPANT_NAME);
+    console.log("  --datareader <name> ConnextDDS Data Reader to use [%s]", DEFAULT_DATA_READER_NAME);
+    console.log("  --datawriter <name> ConnextDDS Data Writer to use [%s]", DEFAULT_DATA_WRITER_NAME);
 }
 
 
@@ -41,6 +51,10 @@ function usage() {
 // ***************************************************************************
 var httpPort = DEFAULT_HTTP_PORT;
 var verbose  = false;
+var xmlFile = DEFAULT_XML_FILE;
+var partName = DEFAULT_PARTICIPANT_NAME;
+var drName = DEFAULT_DATA_READER_NAME;
+var dwName = DEFAULT_DATA_WRITER_NAME;
 
 for (let i = 2; i < process.argv.length; ++i) {
     if ((process.argv[i] == "-h") || (process.argv[i] == "--help")) {
@@ -59,24 +73,69 @@ for (let i = 2; i < process.argv.length; ++i) {
         httpPort = Number.parseInt(process.argv[++i]);
         continue;
     }
+    if ((process.argv[i] == "--xml")) {
+        if (i+1 >= process.argv.length) {
+            console.log("Error: missing argv for '--xml' argument");
+            process.exit(1);
+        }
+        xmlFile = process.argv[++i];
+        continue;
+    }
+    if ((process.argv[i] == "--part")) {
+        if (i+1 >= process.argv.length) {
+            console.log("Error: missing argv for '--part' argument");
+            process.exit(1);
+        }
+        partName = process.argv[++i];
+        continue;
+    }
+    if ((process.argv[i] == "--datareader")) {
+        if (i+1 >= process.argv.length) {
+            console.log("Error: missing argv for '--datareader' argument");
+            process.exit(1);
+        }
+        drName = process.argv[++i];
+        continue;
+    }
+    if ((process.argv[i] == "--datawriter")) {
+        if (i+1 >= process.argv.length) {
+            console.log("Error: missing argv for '--datawriter' argument");
+            process.exit(1);
+        }
+        dwName = process.argv[++i];
+        continue;
+    }
     console.log("Error: unknown argument '%s'", process.argv[i]);
     process.exit(1);
 }
 
 var blockchain = new Blockchain();
-var p2p = new P2P(blockchain);
+var p2p = new P2P(blockchain, verbose, xmlFile, partName, drName, dwName);
 
 // Initialize express
 var app = mod_express();
 app.use(mod_bodyParser.json());
 app.get('/blocks', function (req, res) {
-    res.send(blockchain.getBlockchain());
+    if (verbose) {
+        console.log("[main]: Processing request: GET /blocks");
+    }
+    res.send(blockchain.toString());
+});
+app.get('/content', function (req, res) {
+    if (verbose) {
+        console.log("[main]: Processing request: GET /content");
+    }
+    res.send(blockchain.toContentString());
 });
 app.post('/mineBlock', function (req, res) {
+    if (verbose) {
+        console.log("[main]: Processing request: POST /mineBlock");
+    }
     var newBlock = blockchain.generateNextBlock(req.body.data);
+    p2p.broadcastLatest();
     res.send(newBlock);
 });
 app.listen(httpPort, function () {
-    if (verbose) console.log('Server started, listening http on port: ' + httpPort);
+    if (verbose) console.log('[main]: Server started, listening http on port: ' + httpPort);
 });
 
