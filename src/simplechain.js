@@ -265,7 +265,7 @@ Blockchain.prototype.generateNextBlock = function(data) {
             const params = {
                     index: newIndex,
                     previousHash: previousHash,
-                    timestamp: getTime,
+                    timestamp: timestamp,
                     data: data,
                     difficulty: difficulty,
                     nonce: nonce
@@ -278,7 +278,7 @@ Blockchain.prototype.generateNextBlock = function(data) {
     }
 
     const lastBlock = this.getLatestBlock();
-    const difficulty = getDifficulty(chain);
+    const difficulty = getDifficulty(this.chain);
     const timestamp = utils.getCurrentTimestamp();
     // TODO: Log new difficulty
     var newBlock = findBlock(lastBlock.index+1, lastBlock.hash, timestamp, difficulty);
