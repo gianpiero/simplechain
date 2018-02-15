@@ -9,6 +9,82 @@
 // Imported modules
 // ***************************************************************************
 var SHA256 = require("crypto-js/sha256");
+var utils = require("./utils.js");
+
+// Those parameters MUST be the same between all the peers
+const BLOCK_GENERATION_INTERVAL = 10;       // In number of seconds
+const DIFFICULTY_ADJUSTMENT_INTERVAL = 10;  // In number of blocks mined
+
+const DEFAULT_DIFFICULTY = 4;
+
+// ***************************************************************************
+// Local Functions
+// ***************************************************************************
+/* Given a hash (string of 64-hex characters), and a difficulty (number), 
+ * return true if the first 'difficulty' bits of the hash are all zeros.
+ */
+function hashMatchesDifficulty(hash, difficulty) {
+    const hashInBinary = utils.hexToBinary(hash);
+    const requiredPrefix = '0'.repeat(difficulty);
+    return hashInBinary.startsWith(requiredPrefix);
+}
+
+/* Calculates the new difficulty by looking at the global parameters and the 
+ * time required to mine the last blocks in the given blockchain. Returns 
+ * a number with the new difficulty.
+ * The new difficulty is either the same as the current difficulty (difficulty from the
+ * last block), or + or - 1 from it. 
+ *
+ * ExpectedTime = BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL
+ */
+function getDifficulty(chain) {
+    const latestBlock = chain[chain.length - 1];
+    const currentDifficulty = latestBlock.difficulty;
+
+    if (! (latestBlock.index % DIFFICULTY_ADJUSTMENT_INTERVAL === 0 && latestBlock.index !== 0) ) {
+        // No need to re-adjust the difficulty
+        return currentDifficulty;
+    }
+    // We re-adjust everyt DIFFICULTY_ADJUSTMENT_INTERVAL blocks (except first time)
+    // Need re-adjustment now
+    const prevAdjustmentBlock = chain[chain.length - DIFFICULTY_ADJUSTMENT_INTERVAL];
+    const timeExpected = BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL;
+    const timeTaken = latestBlock.timestamp - prevAdjustmentBlock.timestamp;
+    if (timeTaken < timeExpected/2) {
+        // Too fast, increase difficulty
+        return currentDifficulty + 1;
+    }
+    if (timeTaken > timeExpected*2) {
+        // Too slow, decrease the difficulty
+        return currentDifficulty - 1;
+    }
+    // Else we are in the right range, don't change the difficulty
+    return currentDifficulty;
+}
+        
+/* isValidTimestamp - Validates the timestamp of this block
+ *
+ * Block is valid if timestamp is at most 1 min in the future from the time we perceive
+ * Block in the chain is valid if the timestamp is at most 1 min in the past of the
+ * previous block
+ */
+function isValidTimestamp(newBlock, previousBlock) {
+    return ( (previousBlock.timestamp - 60) < newBlock.timestamp) &&
+           (newBlock.timestamp - 60 < utils.getCurrentTimestamp());
+}
+
+// Expects an object with the same properties as the Block 
+// object (except for 'hash')
+function calculateHash(params) {
+    return SHA256(params.index + 
+            params.previousHash + 
+            params.timestamp + 
+            params.data + 
+            params.difficulty + 
+            params.nonce).toString();
+}
+
+
 
 // ***************************************************************************
 // Block Class Definition
@@ -22,6 +98,8 @@ var SHA256 = require("crypto-js/sha256");
  *  previousHash: null
  *  timestamp: current time
  *  data: null
+ *  difficulty: DEFAULT_DIFFICULTY
+ *  nonce: 0
  *  hash: calculate the hash over the all the other values
  */
 var Block = function(params) {
@@ -34,19 +112,20 @@ var Block = function(params) {
     this.previousHash = params.previousHash || null;
 
     // timestamp is an integer in UTC
-    this.timestamp = params.timestamp || Number.parseInt(new Date().getTime()/1000);
+    this.timestamp = params.timestamp || utils.getCurrentTimestamp();
 
     // data is anys tring
     this.data = params.data || null;
 
-    // hash is a string of exactly 64 characters
-    this.hash = params.hash || this.calculateHash();
-}
+    // Current difficulty used when calculating the hash
+    this.difficulty = params.difficulty || DEFAULT_DIFFICULTY;
 
-/* Block.calculateHash - Calculates the hash of this block
- */
-Block.prototype.calculateHash = function() {
-    return SHA256(this.index + this.previousHash + this.timestamp + this.data).toString();
+    // The nonce used for matching the difficulty, set during proof of work
+    this.nonce = params.nonce || 0;
+
+    // hash is a string of exactly 64 characters
+    this.hash = params.hash || calculateHash(this);
+
 }
 
 /*
@@ -56,8 +135,7 @@ Block.prototype.calculateHash = function() {
  */
 const GENESIS_BLOCK = new Block();
 
-/*
- * Block.isEqual - Compares this block to another block.
+/* Block.isEqual - Compares this block to another block.
  * Returns boolean true if the two blocks are the same. false otherwise
  */
 Block.prototype.isEqual = function(block) {
@@ -68,7 +146,7 @@ Block.prototype.isEqual = function(block) {
            (this.data === block.data);
 }
 
-/* block.isValidBlockStructure - Ensures the block has valid by enforcing
+/* Block.isValidBlockStructure - Ensures the block has valid by enforcing
  * the type and range of its properties.
  * Returns the boolean true if the block has a valid structure.
  *
@@ -102,7 +180,7 @@ Block.prototype.validateNextBlock = function(newBlock) {
     if (this.hash !== newBlock.previousHash) {
         throw new Error("New block have an invalid previousHash");
     } 
-    var newBlockHash = newBlock.calculateHash();
+    var newBlockHash = calculateHash(newBlock);
     if (newBlockHash != newBlock.hash) {
         throw new Error("New block have an invalid hash: Expected='%s', got='%s'", newBlockHash, newBlock.hash);
     }
@@ -181,16 +259,50 @@ Blockchain.prototype.addBlock = function(block) {
 /* Blockchain.generateNextBlock - Generates a new block, appends it to the current
  * chain and broadcast it through the P2P
  */
-Blockchain.prototype.generateNextBlock= function(data) {
-    var lastBlock = this.getLatestBlock();
-    var newBlock = new Block({index: (lastBlock.index + 1), previousHash: lastBlock.hash, data: data});
+Blockchain.prototype.generateNextBlock = function(data) {
+    function findBlock(newIndex, previousHash, timestamp, difficulty) {
+        for (let nonce=0;;++nonce) {
+            const params = {
+                    index: newIndex,
+                    previousHash: previousHash,
+                    timestamp: getTime,
+                    data: data,
+                    difficulty: difficulty,
+                    nonce: nonce
+            }
+            const hash = calculateHash(params);
+            if (hashMatchesDifficulty(hash, difficulty)) {
+                return new Block(params);
+            }
+        }
+    }
+
+    const lastBlock = this.getLatestBlock();
+    const difficulty = getDifficulty(chain);
+    const timestamp = utils.getCurrentTimestamp();
+    // TODO: Log new difficulty
+    var newBlock = findBlock(lastBlock.index+1, lastBlock.hash, timestamp, difficulty);
     this.addBlock(newBlock);
     return newBlock;
 }
 
+
+
 Blockchain.prototype.getBlockchain = function() {
     return this.chain;
 }
+
+
+/* Returns the cumulative difficulty of this chain
+ * Cumulative difficulty is determined as:
+ *  2^difficultyOfBlock0 + 2^difficultyOfBlock1 + ... 2^DifficultyOfLastBlock
+ */
+Blockchain.prototype.getAccumulatedDifficulty = function() {
+    return this.chain.map( (block) => block.difficulty)
+                     .map( (difficulty) => Math.pow(2, difficulty))
+                     .reduce( (a,b) => a+b);
+}
+
 
 module.exports.Block = Block;
 module.exports.Blockchain = Blockchain;
